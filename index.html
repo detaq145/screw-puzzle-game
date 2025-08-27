@@ -1,95 +1,241 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Screw Puzzle Game</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Screw Puzzle – Multi‑Panel</title>
   <style>
-    body {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-      background: #f4f4f4;
-      font-family: Arial, sans-serif;
+    :root {
+      --bg: #f6f6f7;
+      --board: #d9dee6;
+      --panel: #8f9bb3;
+      --panel-2: #9aa6bf;
+      --edge: #3a3f4b;
     }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: var(--bg);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    .wrap { display: grid; gap: 12px; place-items: center; }
+
     #game {
       position: relative;
-      width: 400px;
-      height: 400px;
-      background: #ddd;
-      border: 4px solid #333;
-      border-radius: 10px;
+      width: 420px;
+      height: 520px;
+      background: linear-gradient(#cfd6e3, #b8c2d3);
+      border: 6px solid var(--edge);
+      border-radius: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.15);
       overflow: hidden;
     }
+
+    /* Board area */
+    .board {
+      position: absolute;
+      inset: 60px 20px 20px 20px; /* leave space for header */
+      background: var(--board);
+      border: 4px solid #4a5160;
+      border-radius: 12px;
+    }
+
+    /* Header */
+    .hud {
+      position: absolute;
+      top: 8px; left: 12px; right: 12px;
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px;
+      color: #111;
+    }
+    .title { font-weight: 700; letter-spacing: .3px; }
+    .btn {
+      border: 0; border-radius: 999px; padding: 8px 12px; cursor: pointer;
+      background: #111; color: #fff; font-weight: 700; box-shadow: 0 3px 0 rgba(0,0,0,.3);
+    }
+
+    /* Panels */
     .panel {
       position: absolute;
-      width: 200px;
-      height: 200px;
-      background: #888;
-      border: 2px solid #444;
-      top: 100px;
-      left: 100px;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      transition: top 1s ease;
+      background: var(--panel);
+      border: 3px solid #4e586b;
+      border-radius: 10px;
+      box-shadow: inset 0 8px 16px rgba(255,255,255,.15), inset 0 -10px 16px rgba(0,0,0,.15);
+      transition: transform .9s cubic-bezier(.22,.83,.35,1), opacity .4s ease;
+      will-change: transform, opacity;
     }
+    .panel.alt { background: var(--panel-2); }
+    .panel.falling { transform: translateY(520px) rotate(2deg); opacity: .85; }
+
+    /* Screws */
     .screw {
       position: absolute;
-      width: 30px;
-      height: 30px;
-      background: #555;
+      width: 28px; height: 28px;
       border-radius: 50%;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      color: #fff;
-      font-weight: bold;
+      display: grid; place-items: center;
+      background: radial-gradient(circle at 35% 35%, #bfc7d6, #8d99ae 55%, #6b768b 56%, #5b6578);
+      border: 2px solid #2f3543;
+      box-shadow: 0 2px 0 rgba(0,0,0,.35), inset 0 1px 2px rgba(255,255,255,.35);
       cursor: pointer;
+      user-select: none;
+      transition: transform .12s ease;
     }
-    .screw:hover {
-      background: #333;
-    }
-    #message {
-      margin-top: 20px;
-      font-size: 18px;
-      text-align: center;
-    }
+    .screw:active { transform: scale(.92) rotate(12deg); }
+    .screw span { font-size: 16px; line-height: 1; color: #233; font-weight: 800; }
+    .screw.removed { pointer-events: none; opacity: .2; }
+
+    /* Message */
+    #message { min-height: 22px; font-weight: 600; color: #333; }
   </style>
 </head>
 <body>
-  <div>
+  <div class="wrap">
     <div id="game">
-      <div class="panel" id="panel">Panel</div>
-      <div class="screw" id="screw1" style="top: 90px; left: 90px;">X</div>
-      <div class="screw" id="screw2" style="top: 90px; left: 280px;">X</div>
-      <div class="screw" id="screw3" style="top: 280px; left: 90px;">X</div>
-      <div class="screw" id="screw4" style="top: 280px; left: 280px;">X</div>
+      <div class="hud">
+        <div class="title">Level 1 · Multi‑Panel Board</div>
+        <div id="message">Unscrew outer plates first…</div>
+        <button class="btn" id="reset">Reset</button>
+      </div>
+      <div class="board" id="board"></div>
     </div>
-    <div id="message">Remove the screws in the correct order!</div>
   </div>
 
   <script>
-    const screws = ["screw1", "screw2", "screw3", "screw4"];
-    let currentIndex = 0;
+    // --- CONFIG -------------------------------------------------------------
+    // Simple dependency model: a panel may list other panels it depends on.
+    // It can only FALL after (a) all its screws are removed AND (b) all its
+    // dependency panels have already fallen.
 
-    screws.forEach(id => {
-      document.getElementById(id).addEventListener("click", () => handleScrew(id));
-    });
+    const PANELS = [
+      // Outer ring
+      { id: 'pA', x: 38,  y: 90,  w: 140, h: 90,  deps: [],            alt: false,
+        screws: [ {id:'sA1', dx:10, dy:10}, {id:'sA2', dx:110, dy:10}, {id:'sA3', dx:10, dy:50}, {id:'sA4', dx:110, dy:50} ] },
+      { id: 'pB', x: 240, y: 90,  w: 140, h: 90,  deps: [],            alt: true,
+        screws: [ {id:'sB1', dx:10, dy:10}, {id:'sB2', dx:110, dy:10}, {id:'sB3', dx:10, dy:50}, {id:'sB4', dx:110, dy:50} ] },
+      { id: 'pC', x: 38,  y: 200, w: 140, h: 110, deps: [],            alt: true,
+        screws: [ {id:'sC1', dx:10, dy:10}, {id:'sC2', dx:110, dy:10}, {id:'sC3', dx:10, dy:70}, {id:'sC4', dx:110, dy:70} ] },
+      { id: 'pD', x: 240, y: 200, w: 140, h: 110, deps: [],            alt: false,
+        screws: [ {id:'sD1', dx:10, dy:10}, {id:'sD2', dx:110, dy:10}, {id:'sD3', dx:10, dy:70}, {id:'sD4', dx:110, dy:70} ] },
+      // Inner plates depend on the outer plates
+      { id: 'pE', x: 140, y: 140, w: 140, h: 80,  deps: ['pA','pB'],   alt: false,
+        screws: [ {id:'sE1', dx:10, dy:10}, {id:'sE2', dx:100, dy:10}, {id:'sE3', dx:10, dy:40}, {id:'sE4', dx:100, dy:40} ] },
+      { id: 'pF', x: 140, y: 240, w: 140, h: 80,  deps: ['pC','pD'],   alt: true,
+        screws: [ {id:'sF1', dx:10, dy:10}, {id:'sF2', dx:100, dy:10}, {id:'sF3', dx:10, dy:40}, {id:'sF4', dx:100, dy:40} ] },
+      // Core plate depends on both inner plates
+      { id: 'pCORE', x: 110, y: 180, w: 200, h: 100, deps: ['pE','pF'], alt: false,
+        screws: [ {id:'sG1', dx:12, dy:12}, {id:'sG2', dx:160, dy:12}, {id:'sG3', dx:12, dy:60}, {id:'sG4', dx:160, dy:60} ] },
+    ];
 
-    function handleScrew(id) {
-      if (id === screws[currentIndex]) {
-        document.getElementById(id).style.display = "none";
-        currentIndex++;
-        if (currentIndex === screws.length) {
-          document.getElementById("panel").style.top = "420px"; // panel falls off
-          document.getElementById("message").textContent = "You solved the puzzle!";
+    // --- STATE -------------------------------------------------------------
+    const state = {
+      fallen: new Set(),          // panels that have fallen
+      screwsRemoved: new Set(),   // screw ids that are removed
+    };
+
+    const boardEl = document.getElementById('board');
+    const msgEl = document.getElementById('message');
+    const resetBtn = document.getElementById('reset');
+
+    // --- BUILD DOM ---------------------------------------------------------
+    function build() {
+      boardEl.innerHTML = '';
+      state.fallen.clear();
+      state.screwsRemoved.clear();
+      msg('Unscrew outer plates first…');
+
+      for (const p of PANELS) {
+        const el = document.createElement('div');
+        el.className = 'panel' + (p.alt ? ' alt' : '');
+        el.id = p.id;
+        el.style.left = p.x + 'px';
+        el.style.top = p.y + 'px';
+        el.style.width = p.w + 'px';
+        el.style.height = p.h + 'px';
+        el.dataset.deps = JSON.stringify(p.deps || []);
+        el.dataset.totalScrews = p.screws.length;
+        el.dataset.panelId = p.id;
+
+        // Place screws for this panel
+        for (const s of p.screws) {
+          const sEl = document.createElement('button');
+          sEl.className = 'screw';
+          sEl.id = s.id;
+          sEl.setAttribute('aria-label', 'Screw');
+          sEl.style.left = s.dx + 'px';
+          sEl.style.top = s.dy + 'px';
+          sEl.innerHTML = '<span>✚</span>';
+          sEl.addEventListener('click', () => onScrewClick(p.id, s.id, sEl));
+          el.appendChild(sEl);
         }
-      } else {
-        document.getElementById("message").textContent = "Wrong screw! Try again.";
+        boardEl.appendChild(el);
       }
     }
+
+    // --- HELPERS -----------------------------------------------------------
+    function msg(text) { msgEl.textContent = text; }
+
+    function onScrewClick(panelId, screwId, sEl) {
+      // Remove the screw visually
+      if (state.screwsRemoved.has(screwId)) return;
+      sEl.classList.add('removed');
+      sEl.style.transform = 'translateY(2px) scale(.8)';
+      sEl.style.opacity = '.15';
+      state.screwsRemoved.add(screwId);
+
+      // Check if this panel can fall now
+      maybeDrop(panelId);
+    }
+
+    function panelScrewsRemoved(panelId) {
+      const panel = PANELS.find(p => p.id === panelId);
+      const total = panel.screws.length;
+      let removed = 0;
+      for (const s of panel.screws) {
+        if (state.screwsRemoved.has(s.id)) removed++;
+      }
+      return removed >= total;
+    }
+
+    function depsCleared(panelId) {
+      const panel = PANELS.find(p => p.id === panelId);
+      return (panel.deps || []).every(d => state.fallen.has(d));
+    }
+
+    function maybeDrop(panelId) {
+      if (state.fallen.has(panelId)) return; // already fallen
+      const canFall = panelScrewsRemoved(panelId) && depsCleared(panelId);
+      if (canFall) {
+        const el = document.getElementById(panelId);
+        el.classList.add('falling');
+        state.fallen.add(panelId);
+        msg('Panel ' + panelId.replace('p','') + ' released!');
+        checkWin();
+      } else {
+        const el = document.getElementById(panelId);
+        const deps = JSON.parse(el.dataset.deps);
+        if (!depsCleared(panelId) && deps.length) {
+          msg('This plate is still attached: remove ' + deps.join(', ') + ' first.');
+        } else {
+          msg('Keep unscrewing…');
+        }
+      }
+    }
+
+    function checkWin() {
+      const allFallen = PANELS.every(p => state.fallen.has(p.id));
+      if (allFallen) {
+        msg('🎉 All panels released!');
+      }
+    }
+
+    resetBtn.addEventListener('click', build);
+
+    // Kick off
+    build();
   </script>
 </body>
 </html>
